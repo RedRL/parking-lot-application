@@ -1,0 +1,84 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+Description: Deploy ParkingLotAPI Lambda functions
+
+Resources:
+  ParkingLotS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: parking-lot-lambda-functions-bucket
+
+  EntryFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: EntryFunctionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - dynamodb:PutItem
+                Resource: "*"
+
+  ExitFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ExitFunctionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                Resource: "*"
+
+  EntryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: entry_handler.lambda_handler
+      Runtime: python3.12
+      CodeUri: s3://parking-lot-lambda-functions-bucket/entry_handler.zip
+      Role: !GetAtt EntryFunctionRole.Arn
+      Events:
+        EntryApi:
+          Type: Api
+          Properties:
+            Path: /entry
+            Method: post
+
+  ExitFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: exit_handler.lambda_handler
+      Runtime: python3.12
+      CodeUri: s3://parking-lot-lambda-functions-bucket/exit_handler.zip
+      Role: !GetAtt ExitFunctionRole.Arn
+      Events:
+        ExitApi:
+          Type: Api
+          Properties:
+            Path: /exit
+            Method: post
