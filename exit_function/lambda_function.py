@@ -1,15 +1,16 @@
 import json
-from decimal import Decimal
 import boto3
+import os
 from datetime import datetime
 
 dynamodb = boto3.resource('dynamodb')
-table = dynamodb.Table('ParkingRecords')
+table = dynamodb.Table(os.getenv('TABLE_NAME', 'ParkingRecords'))
 
 
-def lambda_handler(event, context):
+def exit_handler(event, context):
     ticket_id = event['queryStringParameters']['ticketId']
 
+    # Fetch the item from the table
     response = table.get_item(Key={'ticketId': ticket_id})
     if 'Item' not in response:
         return {
@@ -18,9 +19,18 @@ def lambda_handler(event, context):
         }
 
     item = response['Item']
+
+    # Check if the car has already exited
+    if item['exitTime'] is not None:
+        return {
+            'statusCode': 400,
+            'body': json.dumps({'error': 'Car has already exited'})
+        }
+
     entry_time = item['entryTime']
     exit_time = int(datetime.now().timestamp())
 
+    # Update the item with the exit time
     table.update_item(
         Key={'ticketId': ticket_id},
         UpdateExpression="set exitTime=:e",
@@ -36,7 +46,7 @@ def lambda_handler(event, context):
 
     total_time_string = '{:02}:{:02}:{:02}'.format(total_hours, total_minutes, total_seconds)
 
-    charge = float(total_time_seconds // 900 + 1) * 2.5  # $10 per hour, $2.5 per 15 minutes
+    charge = float(total_time_seconds // 900 + 1) * 2.5  # $2.5 per 15 minutes
 
     return {
         'statusCode': 200,

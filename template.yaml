@@ -2,11 +2,80 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: 'AWS::Serverless-2016-10-31'
 Description: Deploy ParkingLotAPI Lambda functions
 
+Parameters:
+  BucketName:
+    Type: String
+    Description: The name of the S3 bucket for Lambda functions
+  EntryZipKey:
+    Type: String
+    Description: The S3 key for the Entry function ZIP file
+    Default: 'entry_function.zip'
+  ExitZipKey:
+    Type: String
+    Description: The S3 key for the Exit function ZIP file
+    Default: 'exit_function.zip'
+
 Resources:
-  ParkingLotS3Bucket:
-    Type: AWS::S3::Bucket
+  ParkingRecordsTable:
+    Type: AWS::DynamoDB::Table
     Properties:
-      BucketName: parking-lot-lambda-functions-bucket
+      TableName: ParkingRecords
+      AttributeDefinitions:
+        - AttributeName: ticketId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: ticketId
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+  DeployUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: deploy-user
+
+  DeployUserPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: DeployUserPolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - cloudformation:CreateStack
+              - cloudformation:UpdateStack
+              - cloudformation:DeleteStack
+              - cloudformation:DescribeStacks
+              - cloudformation:DescribeStackResources
+              - cloudformation:GetTemplate
+              - cloudformation:ValidateTemplate
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - iam:CreateRole
+              - iam:DeleteRole
+              - iam:PassRole
+              - iam:AttachRolePolicy
+              - iam:DetachRolePolicy
+              - iam:PutRolePolicy
+              - iam:DeleteRolePolicy
+              - iam:GetRole
+              - iam:GetRolePolicy
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - lambda:CreateFunction
+              - lambda:UpdateFunctionCode
+              - lambda:UpdateFunctionConfiguration
+              - lambda:DeleteFunction
+              - lambda:InvokeFunction
+              - lambda:GetFunction
+              - lambda:GetFunctionConfiguration
+            Resource: "*"
+      Users:
+        - !Ref DeployUser
 
   EntryFunctionRole:
     Type: AWS::IAM::Role
@@ -29,7 +98,12 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                   - dynamodb:PutItem
-                Resource: "*"
+                  - dynamodb:Scan
+                  - s3:GetObject
+                Resource: 
+                  - "arn:aws:logs:*:*:*"
+                  - !GetAtt ParkingRecordsTable.Arn
+                  - "arn:aws:s3:::*"
 
   ExitFunctionRole:
     Type: AWS::IAM::Role
@@ -53,15 +127,24 @@ Resources:
                   - logs:PutLogEvents
                   - dynamodb:GetItem
                   - dynamodb:UpdateItem
-                Resource: "*"
+                  - s3:GetObject
+                Resource: 
+                  - "arn:aws:logs:*:*:*"
+                  - !GetAtt ParkingRecordsTable.Arn
+                  - "arn:aws:s3:::*"
 
   EntryFunction:
     Type: AWS::Serverless::Function
     Properties:
-      Handler: entry_handler.lambda_handler
-      Runtime: python3.12
-      CodeUri: s3://parking-lot-lambda-functions-bucket/entry_handler.zip
+      Handler: lambda_function.entry_handler
+      Runtime: python3.8
+      CodeUri: 
+        Bucket: !Ref BucketName
+        Key: !Ref EntryZipKey
       Role: !GetAtt EntryFunctionRole.Arn
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref ParkingRecordsTable
       Events:
         EntryApi:
           Type: Api
@@ -72,10 +155,15 @@ Resources:
   ExitFunction:
     Type: AWS::Serverless::Function
     Properties:
-      Handler: exit_handler.lambda_handler
-      Runtime: python3.12
-      CodeUri: s3://parking-lot-lambda-functions-bucket/exit_handler.zip
+      Handler: lambda_function.exit_handler
+      Runtime: python3.8
+      CodeUri: 
+        Bucket: !Ref BucketName
+        Key: !Ref ExitZipKey
       Role: !GetAtt ExitFunctionRole.Arn
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref ParkingRecordsTable
       Events:
         ExitApi:
           Type: Api
